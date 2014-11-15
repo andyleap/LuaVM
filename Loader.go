@@ -17,8 +17,12 @@ const (
 	NUMBER
 	STRING
 	TABLE
+	FUNCTION
 	CLOSURE
+	GOFUNCTION
 )
+
+type GOFUNC func(c *Closure, v *VM)
 
 var (
 	BADSIGNATURE error = errors.New("Bad signature")
