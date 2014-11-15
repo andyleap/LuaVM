@@ -32,8 +32,8 @@ type Instruction uint32
 type Number float64
 
 type Value struct {
-	Type  ValueType
-	Value interface{}
+	Type ValueType
+	Val  interface{}
 }
 
 type Instr struct {
@@ -234,12 +234,12 @@ func (l *luaFile) readConstantList() []Value {
 		case valuetype == NIL:
 		case valuetype == BOOLEAN:
 			binary.Read(l.Data, binary.LittleEndian, &integer)
-			constants[l1].Value = integer
+			constants[l1].Val = integer
 		case valuetype == NUMBER:
 			binary.Read(l.Data, binary.LittleEndian, &number)
-			constants[l1].Value = number
+			constants[l1].Val = number
 		case valuetype == STRING:
-			constants[l1].Value = l.readString()
+			constants[l1].Val = l.readString()
 		}
 	}
 	return constants
