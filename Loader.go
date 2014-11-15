@@ -36,11 +36,6 @@ type Value struct {
 	Value interface{}
 }
 
-type Stackframe struct {
-	Regs     []*Value
-	Upvalues []*Value
-}
-
 type Instr struct {
 	Opcode uint8
 	A      uint8
@@ -56,11 +51,6 @@ type FunctionPrototype struct {
 	Parameters   uint8
 	IsVararg     uint8
 	MaxStackSize uint8
-}
-
-type Closure struct {
-	Stack    *Stackframe
-	Function *FunctionPrototype
 }
 
 type header struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestTimeConsuming(t *testing.T) {
+func TestReadLuaC(t *testing.T) {
 	f, err := os.Open("test.luac")
 	if err != nil {
 		t.Error("File Open Failed: ", err)
