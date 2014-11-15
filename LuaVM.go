@@ -26,7 +26,7 @@ var (
 	BADENCODING  error = errors.New("Bad encoding")
 )
 
-type Size_T uint32
+type Size_T uint64
 type Integer uint32
 type Instruction uint32
 type Number float64
@@ -75,18 +75,24 @@ type header struct {
 	Integral         uint8
 }
 
+type luaFile struct {
+	Size_size_t uint8
+	Data        io.Reader
+}
+
 func ReadLuaC(data io.Reader) (*Closure, error) {
-	err := checkHeader(data)
+	l := &luaFile{Data: data}
+	err := l.checkHeader()
 	if err != nil {
 		return nil, err
 	}
-
+	l.readFunctionBlock()
 	return nil, nil
 }
 
-func checkHeader(data io.Reader) error {
+func (l *luaFile) checkHeader() error {
 	var header header
-	binary.Read(data, binary.LittleEndian, &header)
+	binary.Read(l.Data, binary.LittleEndian, &header)
 	if header.Signature != 0x61754C1B {
 		return BADSIGNATURE
 	}
@@ -96,13 +102,12 @@ func checkHeader(data io.Reader) error {
 	if header.Format != 0 ||
 		header.Endianness != 1 ||
 		header.Size_int != 4 ||
-		header.Size_size_t != 4 ||
 		header.Size_instruction != 4 ||
 		header.Size_number != 8 ||
 		header.Integral != 0 {
 		return BADENCODING
 	}
-	readFunctionBlock(data)
+	l.Size_size_t = header.Size_size_t
 	return nil
 }
 
@@ -123,11 +128,11 @@ type functionBlock struct {
 	MaxStackSize    uint8
 }
 
-func readFunctionBlock(data io.Reader) (*FunctionPrototype, error) {
-	readString(data)
+func (l *luaFile) readFunctionBlock() (*FunctionPrototype, error) {
+	l.readString()
 
 	var block functionBlock
-	binary.Read(data, binary.LittleEndian, &block)
+	binary.Read(l.Data, binary.LittleEndian, &block)
 
 	Prototype := &FunctionPrototype{
 		Upvalues:     block.Upvalues,
@@ -135,62 +140,62 @@ func readFunctionBlock(data io.Reader) (*FunctionPrototype, error) {
 		IsVararg:     block.IsVararg,
 		MaxStackSize: block.MaxStackSize,
 	}
-	Prototype.Instructions = readInstructionList(data)
-	Prototype.Constants = readConstantList(data)
+	Prototype.Instructions = l.readInstructionList()
+	Prototype.Constants = l.readConstantList()
 
-	Prototype.Functions = readFunctionList(data)
+	Prototype.Functions = l.readFunctionList()
 
 	fmt.Println(Prototype.Instructions)
 
-	readSourceLinePositionList(data)
-	readLocalList(data)
-	readUpvalueList(data)
+	l.readSourceLinePositionList()
+	l.readLocalList()
+	l.readUpvalueList()
 
 	return Prototype, nil
 }
 
-func readUpvalueList(data io.Reader) {
+func (l *luaFile) readUpvalueList() {
 	var size Integer
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		readString(data)
+		l.readString()
 	}
 }
 
-func readLocalList(data io.Reader) {
+func (l *luaFile) readLocalList() {
 	var size Integer
 	var local Integer
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		readString(data)
-		binary.Read(data, binary.LittleEndian, &local)
-		binary.Read(data, binary.LittleEndian, &local)
+		l.readString()
+		binary.Read(l.Data, binary.LittleEndian, &local)
+		binary.Read(l.Data, binary.LittleEndian, &local)
 	}
 }
 
-func readSourceLinePositionList(data io.Reader) {
+func (l *luaFile) readSourceLinePositionList() {
 	var size Integer
 	var line Integer
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		binary.Read(data, binary.LittleEndian, &line)
+		binary.Read(l.Data, binary.LittleEndian, &line)
 	}
 }
 
-func readFunctionList(data io.Reader) []*FunctionPrototype {
+func (l *luaFile) readFunctionList() []*FunctionPrototype {
 	var size Integer
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	functions := make([]*FunctionPrototype, size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		function, _ := readFunctionBlock(data)
+		function, _ := l.readFunctionBlock()
 		functions[l1] = function
 	}
 	return functions
 }
 
-func readInstruction(data io.Reader) Instr {
+func (l *luaFile) readInstruction() Instr {
 	var instruction Instruction
-	binary.Read(data, binary.LittleEndian, &instruction)
+	binary.Read(l.Data, binary.LittleEndian, &instruction)
 
 	ret := Instr{}
 
@@ -215,45 +220,58 @@ func readInstruction(data io.Reader) Instr {
 	return ret
 }
 
-func readInstructionList(data io.Reader) []Instr {
+func (l *luaFile) readInstructionList() []Instr {
 	var size Integer
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	instructions := make([]Instr, size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		instructions[l1] = readInstruction(data)
+		instructions[l1] = l.readInstruction()
 	}
 	return instructions
 }
 
-func readConstantList(data io.Reader) []Value {
+func (l *luaFile) readConstantList() []Value {
 	var size Integer
 	var valuetype ValueType
 	var integer Integer
 	var number Number
-	binary.Read(data, binary.LittleEndian, &size)
+	binary.Read(l.Data, binary.LittleEndian, &size)
 	constants := make([]Value, size)
 	for l1 := Integer(0); l1 < size; l1++ {
-		binary.Read(data, binary.LittleEndian, &valuetype)
+		binary.Read(l.Data, binary.LittleEndian, &valuetype)
 		constants[l1].Type = valuetype
 		switch {
 		case valuetype == NIL:
 		case valuetype == BOOLEAN:
-			binary.Read(data, binary.LittleEndian, &integer)
+			binary.Read(l.Data, binary.LittleEndian, &integer)
 			constants[l1].Value = integer
 		case valuetype == NUMBER:
-			binary.Read(data, binary.LittleEndian, &number)
+			binary.Read(l.Data, binary.LittleEndian, &number)
 			constants[l1].Value = number
 		case valuetype == STRING:
-			constants[l1].Value = readString(data)
+			constants[l1].Value = l.readString()
 		}
 	}
 	return constants
 }
 
-func readString(data io.Reader) string {
-	var size Size_T
-	binary.Read(data, binary.LittleEndian, &size)
+func (l *luaFile) readString() string {
+	size := l.readSize_T()
 	str := make([]byte, size)
-	data.Read(str)
+	l.Data.Read(str)
 	return string(str)
+}
+
+func (l *luaFile) readSize_T() Size_T {
+	if l.Size_size_t == 4 {
+		var size uint32
+		binary.Read(l.Data, binary.LittleEndian, &size)
+		return Size_T(size)
+	}
+	if l.Size_size_t == 8 {
+		var size uint64
+		binary.Read(l.Data, binary.LittleEndian, &size)
+		return Size_T(size)
+	}
+	return 0
 }
