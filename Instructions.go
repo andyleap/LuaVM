@@ -1,9 +1,6 @@
 package LuaVM
 
-import (
-	"fmt"
-	"math"
-)
+import "math"
 
 type OPCODE int
 
@@ -65,7 +62,6 @@ type Closure struct {
 
 func Op_Move(i *Instr, s *Stackframe, v *VM) {
 	s.Regs[i.A] = s.Regs[i.B].Copy()
-	fmt.Println(i.A, i.B, s.Regs[i.A], s.Regs[i.B])
 }
 
 func Op_LoadNil(i *Instr, s *Stackframe, v *VM) {
@@ -251,7 +247,7 @@ func Op_Mod(i *Instr, s *Stackframe, v *VM) {
 	}
 	s.Regs[i.A] = &Value{
 		Type: NUMBER,
-		Val:  math.Mod(bval.Val.(float64), cval.Val.(float64)),
+		Val:  Number(math.Mod(bval.Val.(float64), cval.Val.(float64))),
 	}
 }
 
@@ -273,7 +269,7 @@ func Op_Pow(i *Instr, s *Stackframe, v *VM) {
 	}
 	s.Regs[i.A] = &Value{
 		Type: NUMBER,
-		Val:  math.Pow(bval.Val.(float64), cval.Val.(float64)),
+		Val:  Number(math.Pow(bval.Val.(float64), cval.Val.(float64))),
 	}
 }
 
@@ -741,7 +737,7 @@ func Op_SetList(i *Instr, s *Stackframe, v *VM) {
 	}
 	for l1 := Integer(1); l1 <= Integer(top); l1++ {
 		t.Set(
-			Value{Type: NUMBER, Val: l1 + ((block - 1) * 50)},
+			Value{Type: NUMBER, Val: Number(l1 + ((block - 1) * 50))},
 			s.Regs[i.A+uint8(l1)].Copy())
 	}
 }

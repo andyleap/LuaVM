@@ -1,9 +1,15 @@
 t = {}
 t.a = 1
 t.b = 2
-function test(tab)
-	print(t.a)
-	print(tab.b)
+
+function t:test()
+	print(t.a + t.b)
 end
 
-test(t)
+function test(...)
+	print(...)
+	t = {...}
+	print(t[2])
+end
+
+test(t.a, t.b)

@@ -4,7 +4,6 @@ package LuaVM
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -210,7 +209,6 @@ func (l *luaFile) readInstruction() Instr {
 		ret.A = uint8((instruction & 0x00003FC0) >> 6)
 		ret.B = int32(((instruction & 0xFFFFC000) >> 14)) - 131071
 	}
-	fmt.Println(ret)
 
 	return ret
 }

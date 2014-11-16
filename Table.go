@@ -13,8 +13,8 @@ type Table struct {
 
 func (t *Table) Set(key Value, val *Value) {
 	if key.Type == NUMBER {
-		if math.Floor(key.Val.(float64)) == key.Val.(float64) && uint64(key.Val.(float64)) < t.ArraySize {
-			t.Array[uint64(key.Val.(float64))] = val
+		if math.Floor(float64(key.Val.(Number))) == float64(key.Val.(Number)) && uint64(key.Val.(Number)) < t.ArraySize {
+			t.Array[uint64(key.Val.(Number))] = val
 			t.CalcMaxN()
 			return
 		}
@@ -24,8 +24,8 @@ func (t *Table) Set(key Value, val *Value) {
 
 func (t *Table) Get(key Value) *Value {
 	if key.Type == NUMBER {
-		if math.Floor(key.Val.(float64)) == key.Val.(float64) && uint64(key.Val.(float64)) < t.ArraySize {
-			return t.Array[uint64(key.Val.(float64))]
+		if math.Floor(float64(key.Val.(Number))) == float64(key.Val.(Number)) && uint64(key.Val.(Number)) < t.ArraySize {
+			return t.Array[uint64(key.Val.(Number))]
 		}
 	}
 

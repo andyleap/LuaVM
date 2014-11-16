@@ -24,7 +24,6 @@ func TestReadLuaC(t *testing.T) {
 }
 
 func lua_print(params []*Value, v *VM) []*Value {
-	fmt.Println(params)
 	for _, v := range params {
 		fmt.Print(v.Val)
 	}
