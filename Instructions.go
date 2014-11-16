@@ -1,6 +1,7 @@
 package LuaVM
 
 import (
+	"fmt"
 	"math"
 )
 
@@ -64,6 +65,7 @@ type Closure struct {
 
 func Op_Move(i *Instr, s *Stackframe, v *VM) {
 	s.Regs[i.A] = s.Regs[i.B].Copy()
+	fmt.Println(i.A, i.B, s.Regs[i.A], s.Regs[i.B])
 }
 
 func Op_LoadNil(i *Instr, s *Stackframe, v *VM) {
@@ -92,14 +94,14 @@ func Op_GetGlobal(i *Instr, s *Stackframe, v *VM) {
 	if s.Closure.Function.Constants[i.B].Type != STRING {
 		panic("Constant type is not string")
 	}
-	s.Regs[i.A] = v.G[s.Closure.Function.Constants[i.B].Val.(string)].Copy()
+	s.Regs[i.A] = v.G.Get(s.Closure.Function.Constants[i.B]).Copy()
 }
 
 func Op_SetGlobal(i *Instr, s *Stackframe, v *VM) {
 	if s.Closure.Function.Constants[i.B].Type != STRING {
 		panic("Constant type is not string")
 	}
-	v.G[s.Closure.Function.Constants[i.B].Val.(string)] = s.Regs[i.A].Copy()
+	v.G.Set(s.Closure.Function.Constants[i.B], s.Regs[i.A].Copy())
 }
 
 func Op_GetUpVal(i *Instr, s *Stackframe, v *VM) {
@@ -320,7 +322,7 @@ func Op_Len(i *Instr, s *Stackframe, v *VM) {
 
 func Op_Concat(i *Instr, s *Stackframe, v *VM) {
 	str := ""
-	for l1 := i.B; l1 <= int32(i.C); l1++ {
+	for l1 := int32(i.B); l1 <= int32(i.C); l1++ {
 		if s.Regs[l1].Type != STRING {
 			panic("Attempting to concat non-strings")
 		}
@@ -364,16 +366,27 @@ func Op_Call(i *Instr, s *Stackframe, v *VM) {
 					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 				}
 			}
-			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)-1]
+			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 		}
 		return
 	}
 	if function.Type == GOFUNCTION {
-		function.Val.(GOFUNC)(s, v)
+		var params []*Value
+		if i.B == 0 {
+			params = s.Regs[i.A+1:]
+		} else {
+			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
+		}
+		function.Val.(GOFUNC)(params, v)
+
 	}
 }
 
 func Op_Return(i *Instr, s *Stackframe, v *VM) {
+	if len(v.FrameStack) == 0 {
+		v.S = nil
+		return
+	}
 	v.S = v.FrameStack[len(v.FrameStack)-1]
 	v.FrameStack = v.FrameStack[:len(v.FrameStack)-1]
 
@@ -429,15 +442,21 @@ func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 				if l1 >= int32(len(v.S.Regs)) {
 					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
 				} else {
-					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
+					v.S.Regs[l1] = s.Regs[l1+int32(i.A)]
 				}
 			}
-			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)-1]
+			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)+1]
 		}
 		return
 	}
 	if function.Type == GOFUNCTION {
-		function.Val.(GOFUNC)(s, v)
+		var params []*Value
+		if i.B == 0 {
+			params = s.Regs[i.A+1:]
+		} else {
+			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
+		}
+		function.Val.(GOFUNC)(params, v)
 	}
 }
 
@@ -745,6 +764,9 @@ func Op_Closure(i *Instr, s *Stackframe, v *VM) {
 		s.PC++
 	}
 	s.Regs[destReg] = &Value{Type: CLOSURE, Val: closure}
+}
+
+func Op_Close(i *Instr, s *Stackframe, v *VM) {
 }
 
 func Op_Vararg(i *Instr, s *Stackframe, v *VM) {

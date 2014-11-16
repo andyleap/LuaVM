@@ -22,7 +22,7 @@ const (
 	GOFUNCTION
 )
 
-type GOFUNC func(c *Stackframe, v *VM)
+type GOFUNC func(params []*Value, v *VM) []*Value
 
 var (
 	BADSIGNATURE error = errors.New("Bad signature")
@@ -81,8 +81,9 @@ func ReadLuaC(data io.Reader) (*Closure, error) {
 	if err != nil {
 		return nil, err
 	}
-	l.readFunctionBlock()
-	return nil, nil
+	p, _ := l.readFunctionBlock()
+	c := &Closure{Function: p}
+	return c, nil
 }
 
 func (l *luaFile) checkHeader() error {
@@ -123,7 +124,7 @@ type functionBlock struct {
 	MaxStackSize    uint8
 }
 
-func (l *luaFile) readFunctionBlock() (*Closure, error) {
+func (l *luaFile) readFunctionBlock() (*FunctionPrototype, error) {
 	l.readString()
 
 	var block functionBlock
@@ -139,8 +140,6 @@ func (l *luaFile) readFunctionBlock() (*Closure, error) {
 	Prototype.Constants = l.readConstantList()
 
 	Prototype.Functions = l.readFunctionList()
-
-	fmt.Println(Prototype.Instructions)
 
 	l.readSourceLinePositionList()
 	l.readLocalList()
@@ -197,14 +196,13 @@ func (l *luaFile) readInstruction() Instr {
 
 	opcode := uint8(0x0000003F & instruction)
 
-	fmt.Println(opcode)
 	ret.Opcode = OPCODE(opcode)
 
 	switch opcode {
 	case 0, 3, 2, 4, 8, 6, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 30, 29, 37, 11, 23, 24, 25, 26, 27, 33, 10, 34, 35: //iABC
 		ret.A = uint8((instruction & 0x00003FC0) >> 6)
-		ret.B = int32((instruction & 0x007FC000) >> 14)
-		ret.C = uint16((instruction & 0xFF800000) >> 23)
+		ret.C = uint16((instruction & 0x007FC000) >> 14)
+		ret.B = int32((instruction & 0xFF800000) >> 23)
 	case 1, 5, 7, 36: //iABx
 		ret.A = uint8((instruction & 0x00003FC0) >> 6)
 		ret.B = int32((instruction & 0xFFFFC000) >> 14)
@@ -212,6 +210,7 @@ func (l *luaFile) readInstruction() Instr {
 		ret.A = uint8((instruction & 0x00003FC0) >> 6)
 		ret.B = int32(((instruction & 0xFFFFC000) >> 14)) - 131071
 	}
+	fmt.Println(ret)
 
 	return ret
 }
@@ -255,6 +254,9 @@ func (l *luaFile) readString() string {
 	size := l.readSize_T()
 	str := make([]byte, size)
 	l.Data.Read(str)
+	if size > 0 {
+		str = str[:size-1]
+	}
 	return string(str)
 }
 

@@ -1,8 +1,6 @@
 package LuaVM
 
-import (
-	"math"
-)
+import "math"
 
 type Table struct {
 	Array     []*Value
@@ -30,7 +28,12 @@ func (t *Table) Get(key Value) *Value {
 			return t.Array[uint64(key.Val.(float64))]
 		}
 	}
-	return t.Hash[key]
+
+	v, ok := t.Hash[key]
+	if !ok {
+		v = &Value{Type: NIL}
+	}
+	return v
 }
 
 func (t *Table) CalcMaxN() {
