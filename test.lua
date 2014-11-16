@@ -1,7 +1,7 @@
 print("hello")
 
-function test(param)
-	print(param)
+function test(...)
+	print(...)
 end
 
-test("hello")
+test("hello", 1, 2, 3, 4)

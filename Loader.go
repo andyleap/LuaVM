@@ -22,7 +22,7 @@ const (
 	GOFUNCTION
 )
 
-type GOFUNC func(c *Closure, v *VM)
+type GOFUNC func(c *Stackframe, v *VM)
 
 var (
 	BADSIGNATURE error = errors.New("Bad signature")
@@ -41,7 +41,8 @@ type Value struct {
 }
 
 type Instr struct {
-	Opcode uint8
+	Raw    Instruction
+	Opcode OPCODE
 	A      uint8
 	B      int32
 	C      uint16
@@ -122,7 +123,7 @@ type functionBlock struct {
 	MaxStackSize    uint8
 }
 
-func (l *luaFile) readFunctionBlock() (*FunctionPrototype, error) {
+func (l *luaFile) readFunctionBlock() (*Closure, error) {
 	l.readString()
 
 	var block functionBlock
@@ -192,11 +193,12 @@ func (l *luaFile) readInstruction() Instr {
 	binary.Read(l.Data, binary.LittleEndian, &instruction)
 
 	ret := Instr{}
+	ret.Raw = instruction
 
 	opcode := uint8(0x0000003F & instruction)
 
 	fmt.Println(opcode)
-	ret.Opcode = opcode
+	ret.Opcode = OPCODE(opcode)
 
 	switch opcode {
 	case 0, 3, 2, 4, 8, 6, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28, 30, 29, 37, 11, 23, 24, 25, 26, 27, 33, 10, 34, 35: //iABC

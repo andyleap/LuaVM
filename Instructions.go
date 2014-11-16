@@ -4,277 +4,291 @@ import (
 	"math"
 )
 
-type Stackframe struct {
-	Regs     []*Value
-	Upvalues []*Value
-}
+type OPCODE int
 
-type Closure struct {
-	Stack       *Stackframe
-	Function    *FunctionPrototype
+const (
+	OP_MOVE OPCODE = iota
+	OP_LOADK
+	OP_LOADBOOL
+	OP_LOADNIL
+	OP_GETUPVAL
+	OP_GETGLOBAL
+	OP_GETTABLE
+	OP_SETGLOBAL
+	OP_SETUPVAL
+	OP_SETTABLE
+	OP_NEWTABLE
+	OP_SELF
+	OP_ADD
+	OP_SUB
+	OP_MUL
+	OP_DIV
+	OP_MOD
+	OP_POW
+	OP_UNM
+	OP_NOT
+	OP_LEN
+	OP_CONCAT
+	OP_JMP
+	OP_EQ
+	OP_LT
+	OP_LE
+	OP_TEST
+	OP_TESTSET
+	OP_CALL
+	OP_TAILCALL
+	OP_RETURN
+	OP_FORLOOP
+	OP_FORPREP
+	OP_TFORLOOP
+	OP_SETLIST
+	OP_CLOSE
+	OP_CLOSURE
+	OP_VARARG
+)
+
+type Stackframe struct {
+	Regs        []*Value
+	Params      []*Value
+	Closure     *Closure
 	PC          int64
 	ReturnCount uint64
 	ReturnPos   uint64
-	ReturnFunc  func(*Closure, *VM)
+	ReturnFunc  func(*Stackframe, *VM)
 }
 
-type VM struct {
-	G            map[string]*Value
-	ClosureStack []*Closure
-	C            *Closure
+type Closure struct {
+	Upvalues []*Value
+	Function *FunctionPrototype
 }
 
-func Move(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A] = &Value{
-		Type: c.Stack.Regs[i.B].Type,
-		Val:  c.Stack.Regs[i.B].Val,
-	}
+func Op_Move(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A] = s.Regs[i.B].Copy()
 }
 
-func LoadNil(i *Instr, c *Closure, v *VM) {
+func Op_LoadNil(i *Instr, s *Stackframe, v *VM) {
 	for l1 := int32(i.A); l1 <= i.B; l1++ {
-		c.Stack.Regs[l1] = &Value{
+		s.Regs[l1] = &Value{
 			Type: NIL,
 		}
 	}
 }
 
-func LoadK(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A] = &Value{
-		Type: c.Function.Constants[i.B].Type,
-		Val:  c.Function.Constants[i.B].Val,
-	}
+func Op_LoadK(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A] = s.Closure.Function.Constants[i.B].Copy()
 }
 
-func LoadBool(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A] = &Value{
+func Op_LoadBool(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A] = &Value{
 		Type: BOOLEAN,
 		Val:  i.B,
 	}
 	if i.C != 0 {
-		c.PC++
+		s.PC++
 	}
 }
 
-func GetGlobal(i *Instr, c *Closure, v *VM) {
-	if c.Function.Constants[i.B].Type != STRING {
+func Op_GetGlobal(i *Instr, s *Stackframe, v *VM) {
+	if s.Closure.Function.Constants[i.B].Type != STRING {
 		panic("Constant type is not string")
 	}
-	c.Stack.Regs[i.A] = &Value{
-		Type: v.G[c.Function.Constants[i.B].Val.(string)].Type,
-		Val:  v.G[c.Function.Constants[i.B].Val.(string)].Val,
-	}
+	s.Regs[i.A] = v.G[s.Closure.Function.Constants[i.B].Val.(string)].Copy()
 }
 
-func SetGlobal(i *Instr, c *Closure, v *VM) {
-	if c.Function.Constants[i.B].Type != STRING {
+func Op_SetGlobal(i *Instr, s *Stackframe, v *VM) {
+	if s.Closure.Function.Constants[i.B].Type != STRING {
 		panic("Constant type is not string")
 	}
-	v.G[c.Function.Constants[i.B].Val.(string)] = &Value{
-		Type: c.Stack.Regs[i.A].Type,
-		Val:  c.Stack.Regs[i.A].Val,
-	}
+	v.G[s.Closure.Function.Constants[i.B].Val.(string)] = s.Regs[i.A].Copy()
 }
 
-func GetUpVal(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A] = &Value{
-		Type: c.Stack.Upvalues[i.B].Type,
-		Val:  c.Stack.Upvalues[i.B].Val,
-	}
+func Op_GetUpVal(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A] = s.Closure.Upvalues[i.B].Copy()
 }
 
-func SetUpVal(i *Instr, c *Closure, v *VM) {
-	c.Stack.Upvalues[i.B] = &Value{
-		Type: c.Stack.Regs[i.A].Type,
-		Val:  c.Stack.Regs[i.A].Val,
-	}
+func Op_SetUpVal(i *Instr, s *Stackframe, v *VM) {
+	s.Closure.Upvalues[i.B] = s.Regs[i.A].Copy()
 }
 
-func GetTable(i *Instr, c *Closure, v *VM) {
+func Op_GetTable(i *Instr, s *Stackframe, v *VM) {
 	var key *Value
 	if i.C&256 == 256 {
-		key = &c.Function.Constants[i.C&255]
+		key = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		key = c.Stack.Regs[i.C]
+		key = s.Regs[i.C]
 	}
-	if c.Stack.Regs[i.B].Type != TABLE {
+	if s.Regs[i.B].Type != TABLE {
 		panic("Value is not table")
 	}
-	val := c.Stack.Regs[i.B].Val.(*Table).Get(*key)
-	c.Stack.Regs[i.A] = &Value{
-		Type: val.Type,
-		Val:  val.Val,
-	}
+	val := s.Regs[i.B].Val.(*Table).Get(*key)
+	s.Regs[i.A] = val.Copy()
 }
 
-func SetTable(i *Instr, c *Closure, v *VM) {
+func Op_SetTable(i *Instr, s *Stackframe, v *VM) {
 	var key *Value
 	if i.B&256 == 256 {
-		key = &c.Function.Constants[i.B&255]
+		key = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		key = c.Stack.Regs[i.B]
+		key = s.Regs[i.B]
 	}
 	var val *Value
 	if i.C&256 == 256 {
-		val = &c.Function.Constants[i.C&255]
+		val = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		val = c.Stack.Regs[i.C]
+		val = s.Regs[i.C]
 	}
-	if c.Stack.Regs[i.A].Type != TABLE {
+	if s.Regs[i.A].Type != TABLE {
 		panic("Value is not table")
 	}
-	c.Stack.Regs[i.A].Val.(*Table).Set(*key, &Value{
-		Type: val.Type,
-		Val:  val.Val,
-	})
+	s.Regs[i.A].Val.(*Table).Set(*key, val.Copy())
 }
 
-func Add(i *Instr, c *Closure, v *VM) {
+func Op_Add(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to add non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  bval.Val.(Number) + cval.Val.(Number),
 	}
 }
 
-func Sub(i *Instr, c *Closure, v *VM) {
+func Op_Sub(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to sub non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  bval.Val.(Number) - cval.Val.(Number),
 	}
 }
 
-func Mul(i *Instr, c *Closure, v *VM) {
+func Op_Mul(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to mul non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  bval.Val.(Number) * cval.Val.(Number),
 	}
 }
 
-func Div(i *Instr, c *Closure, v *VM) {
+func Op_Div(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to div non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  bval.Val.(Number) / cval.Val.(Number),
 	}
 }
 
-func Mod(i *Instr, c *Closure, v *VM) {
+func Op_Mod(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to add non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  math.Mod(bval.Val.(float64), cval.Val.(float64)),
 	}
 }
 
-func Pow(i *Instr, c *Closure, v *VM) {
+func Op_Pow(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 	if bval.Type != NUMBER || cval.Type != NUMBER {
 		panic("Trying to add non-numbers")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
 		Val:  math.Pow(bval.Val.(float64), cval.Val.(float64)),
 	}
 }
 
-func Unm(i *Instr, c *Closure, v *VM) {
-	if c.Stack.Regs[i.B].Type != NUMBER {
+func Op_Unm(i *Instr, s *Stackframe, v *VM) {
+	if s.Regs[i.B].Type != NUMBER {
 		panic("Trying to unm non-number")
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: NUMBER,
-		Val:  -(c.Stack.Regs[i.B].Val.(Number)),
+		Val:  -(s.Regs[i.B].Val.(Number)),
 	}
 }
 
-func Not(i *Instr, c *Closure, v *VM) {
-	bval := c.Stack.Regs[i.B]
+func Op_Not(i *Instr, s *Stackframe, v *VM) {
+	bval := s.Regs[i.B]
 	if bval.Type == NIL {
-		c.Stack.Regs[i.A] = &Value{
+		s.Regs[i.A] = &Value{
 			Type: BOOLEAN,
 			Val:  1,
 		}
@@ -284,7 +298,7 @@ func Not(i *Instr, c *Closure, v *VM) {
 		if bval.Val != 0 {
 			val = 0
 		}
-		c.Stack.Regs[i.A] = &Value{
+		s.Regs[i.A] = &Value{
 			Type: BOOLEAN,
 			Val:  val,
 		}
@@ -292,8 +306,8 @@ func Not(i *Instr, c *Closure, v *VM) {
 
 }
 
-func Len(i *Instr, c *Closure, v *VM) {
-	bval := c.Stack.Regs[i.B]
+func Op_Len(i *Instr, s *Stackframe, v *VM) {
+	bval := s.Regs[i.B]
 	var val *Value
 	if bval.Type == TABLE {
 		val = bval.Val.(*Table).Len()
@@ -301,154 +315,162 @@ func Len(i *Instr, c *Closure, v *VM) {
 	if bval.Type == STRING {
 		val = &Value{Type: NUMBER, Val: Number(len(bval.Val.(string)))}
 	}
-	c.Stack.Regs[i.A] = val
+	s.Regs[i.A] = val
 }
 
-func Concat(i *Instr, c *Closure, v *VM) {
+func Op_Concat(i *Instr, s *Stackframe, v *VM) {
 	str := ""
 	for l1 := i.B; l1 <= int32(i.C); l1++ {
-		if c.Stack.Regs[l1].Type != STRING {
+		if s.Regs[l1].Type != STRING {
 			panic("Attempting to concat non-strings")
 		}
-		str = str + c.Stack.Regs[l1].Val.(string)
+		str = str + s.Regs[l1].Val.(string)
 	}
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: STRING,
 		Val:  str,
 	}
 }
 
-func Jmp(i *Instr, c *Closure, v *VM) {
-	c.PC = c.PC + int64(i.B)
+func Op_Jmp(i *Instr, s *Stackframe, v *VM) {
+	s.PC = s.PC + int64(i.B)
 }
 
-func Call(i *Instr, c *Closure, v *VM) {
-	function := c.Stack.Regs[i.A]
+func Op_Call(i *Instr, s *Stackframe, v *VM) {
+	function := s.Regs[i.A]
 	if function.Type == CLOSURE {
-		v.ClosureStack = append(v.ClosureStack, v.C)
-		v.C = function.Val.(*Closure)
-		v.C.ReturnCount = uint64(i.C)
-		v.C.ReturnPos = uint64(i.A)
-		v.C.Stack.Regs = make([]*Value, v.C.Function.MaxStackSize)
+		v.FrameStack = append(v.FrameStack, v.S)
+		v.S = &Stackframe{
+			Closure: function.Val.(*Closure),
+			PC:      0,
+		}
+		v.S.ReturnCount = uint64(i.C)
+		v.S.ReturnPos = uint64(i.A)
+		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
 		if i.B == 0 {
-			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(c.Stack.Regs)); l1++ {
-				if l1 >= int32(v.C.Function.MaxStackSize) {
-					break
+			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(s.Regs)); l1++ {
+				if l1 >= int32(len(v.S.Regs)) {
+					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
+				} else {
+					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 				}
-				v.C.Stack.Regs[l1] = c.Stack.Regs[l1+int32(i.A)+1]
 			}
+			v.S.Params = s.Regs[i.A+1:]
 		} else if i.B > 1 {
 			for l1 := int32(0); l1 < i.B-1; l1++ {
-				if l1 >= int32(v.C.Function.MaxStackSize) {
-					break
+				if l1 >= int32(len(v.S.Regs)) {
+					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
+				} else {
+					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 				}
-				v.C.Stack.Regs[l1] = c.Stack.Regs[l1+int32(i.A)+1]
 			}
+			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)-1]
 		}
 		return
 	}
 	if function.Type == GOFUNCTION {
-		function.Val.(GOFUNC)(c, v)
+		function.Val.(GOFUNC)(s, v)
 	}
 }
 
-func Return(i *Instr, c *Closure, v *VM) {
-	v.C = v.ClosureStack[len(v.ClosureStack)-1]
-	v.ClosureStack = v.ClosureStack[:len(v.ClosureStack)-1]
+func Op_Return(i *Instr, s *Stackframe, v *VM) {
+	v.S = v.FrameStack[len(v.FrameStack)-1]
+	v.FrameStack = v.FrameStack[:len(v.FrameStack)-1]
 
 	if i.B == 0 {
-		for l1 := int32(0); l1+int32(i.A) < int32(len(c.Stack.Regs)); l1++ {
-			if c.ReturnCount > 0 && l1 >= int32(c.ReturnCount) {
+		for l1 := int32(0); l1+int32(i.A) < int32(len(s.Regs)); l1++ {
+			if s.ReturnCount > 0 && l1 >= int32(s.ReturnCount) {
 				break
 			}
-			if len(v.C.Stack.Regs) <= int(l1+int32(c.ReturnPos)) {
-				v.C.Stack.Regs = append(v.C.Stack.Regs, c.Stack.Regs[l1+int32(i.A)])
+			if len(v.S.Regs) <= int(l1+int32(s.ReturnPos)) {
+				v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)])
 			} else {
-				v.C.Stack.Regs[l1+int32(c.ReturnPos)] = c.Stack.Regs[l1+int32(i.A)]
+				v.S.Regs[l1+int32(s.ReturnPos)] = s.Regs[l1+int32(i.A)]
 			}
 		}
 	} else if i.B > 1 {
 		for l1 := int32(0); l1 < i.B-1; l1++ {
-			if c.ReturnCount > 0 && l1 >= int32(c.ReturnCount) {
+			if s.ReturnCount > 0 && l1 >= int32(s.ReturnCount) {
 				break
 			}
-			if len(v.C.Stack.Regs) <= int(l1+int32(c.ReturnPos)) {
-				v.C.Stack.Regs = append(v.C.Stack.Regs, c.Stack.Regs[l1+int32(i.A)])
+			if len(v.S.Regs) <= int(l1+int32(s.ReturnPos)) {
+				v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)])
 			} else {
-				v.C.Stack.Regs[l1+int32(c.ReturnPos)] = c.Stack.Regs[l1+int32(i.A)]
+				v.S.Regs[l1+int32(s.ReturnPos)] = s.Regs[l1+int32(i.A)]
 			}
 		}
 	}
-	if c.ReturnFunc != nil {
-		c.ReturnFunc(v.C, v)
+	if s.ReturnFunc != nil {
+		s.ReturnFunc(v.S, v)
 	}
 }
 
-func TailCall(i *Instr, c *Closure, v *VM) {
-	function := c.Stack.Regs[i.A]
+func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
+	function := s.Regs[i.A]
 	if function.Type == CLOSURE {
-		v.C = function.Val.(*Closure)
-		v.C.ReturnCount = c.ReturnCount
-		v.C.ReturnPos = c.ReturnPos
-		v.C.Stack.Regs = make([]*Value, v.C.Function.MaxStackSize)
+		v.S = &Stackframe{
+			Closure: function.Val.(*Closure),
+			PC:      0,
+		}
+		v.S.ReturnCount = uint64(i.C)
+		v.S.ReturnPos = uint64(i.A)
+		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
 		if i.B == 0 {
-			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(c.Stack.Regs)); l1++ {
-				if l1 >= int32(v.C.Function.MaxStackSize) {
-					break
+			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(s.Regs)); l1++ {
+				if l1 >= int32(len(v.S.Regs)) {
+					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
+				} else {
+					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 				}
-				v.C.Stack.Regs[l1] = c.Stack.Regs[l1+int32(i.A)+1]
 			}
+			v.S.Params = s.Regs[i.A+1:]
 		} else if i.B > 1 {
 			for l1 := int32(0); l1 < i.B-1; l1++ {
-				if l1 >= int32(v.C.Function.MaxStackSize) {
-					break
+				if l1 >= int32(len(v.S.Regs)) {
+					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
+				} else {
+					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 				}
-				v.C.Stack.Regs[l1] = c.Stack.Regs[l1+int32(i.A)+1]
 			}
+			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)-1]
 		}
 		return
 	}
 	if function.Type == GOFUNCTION {
-		function.Val.(GOFUNC)(c, v)
+		function.Val.(GOFUNC)(s, v)
 	}
 }
 
-func Self(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A+1] = &Value{
-		Type: c.Stack.Regs[i.B].Type,
-		Val:  c.Stack.Regs[i.B].Val,
-	}
+func Op_Self(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A+1] = s.Regs[i.B].Copy()
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 
-	val := c.Stack.Regs[i.B].Val.(*Table).Get(*cval)
-	c.Stack.Regs[i.A] = &Value{
-		Type: val.Type,
-		Val:  val.Val,
-	}
+	val := s.Regs[i.B].Val.(*Table).Get(*cval)
+	s.Regs[i.A] = val.Copy()
 }
 
-func Eq(i *Instr, c *Closure, v *VM) {
+func Op_Eq(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 
 	if bval.Type != cval.Type {
 		if i.A != 0 {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 		return
 	}
@@ -456,39 +478,39 @@ func Eq(i *Instr, c *Closure, v *VM) {
 	case NUMBER:
 		if bval.Val.(Number) != cval.Val.(Number) {
 			if i.A != 0 {
-				c.PC = c.PC + 1
+				s.PC = s.PC + 1
 			}
 			return
 		}
 	case STRING:
 		if bval.Val.(string) != cval.Val.(string) {
 			if i.A != 0 {
-				c.PC = c.PC + 1
+				s.PC = s.PC + 1
 			}
 			return
 		}
 	case BOOLEAN:
 		if bval.Val.(Integer) != cval.Val.(Integer) {
 			if i.A != 0 {
-				c.PC = c.PC + 1
+				s.PC = s.PC + 1
 			}
 			return
 		}
 	}
 }
 
-func Lt(i *Instr, c *Closure, v *VM) {
+func Op_Lt(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 
 	if bval.Type != cval.Type {
@@ -499,7 +521,7 @@ func Lt(i *Instr, c *Closure, v *VM) {
 	case NUMBER:
 		if bval.Val.(Number) >= cval.Val.(Number) {
 			if i.A != 0 {
-				c.PC = c.PC + 1
+				s.PC = s.PC + 1
 			}
 			return
 		}
@@ -516,18 +538,18 @@ func Lt(i *Instr, c *Closure, v *VM) {
 	}
 }
 
-func Le(i *Instr, c *Closure, v *VM) {
+func Op_Le(i *Instr, s *Stackframe, v *VM) {
 	var bval *Value
 	if i.B&256 == 256 {
-		bval = &c.Function.Constants[i.B&255]
+		bval = &s.Closure.Function.Constants[i.B&255]
 	} else {
-		bval = c.Stack.Regs[i.B]
+		bval = s.Regs[i.B]
 	}
 	var cval *Value
 	if i.C&256 == 256 {
-		cval = &c.Function.Constants[i.C&255]
+		cval = &s.Closure.Function.Constants[i.C&255]
 	} else {
-		cval = c.Stack.Regs[i.C]
+		cval = s.Regs[i.C]
 	}
 
 	if bval.Type != cval.Type {
@@ -538,7 +560,7 @@ func Le(i *Instr, c *Closure, v *VM) {
 	case NUMBER:
 		if bval.Val.(Number) > cval.Val.(Number) {
 			if i.A != 0 {
-				c.PC = c.PC + 1
+				s.PC = s.PC + 1
 			}
 			return
 		}
@@ -549,16 +571,16 @@ func Le(i *Instr, c *Closure, v *VM) {
 	}
 }
 
-func Test(i *Instr, c *Closure, v *VM) {
-	val := c.Stack.Regs[i.A]
+func Op_Test(i *Instr, s *Stackframe, v *VM) {
+	val := s.Regs[i.A]
 	switch val.Type {
 	case NIL:
 		if i.C == 0 {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	case BOOLEAN:
 		if Integer(i.C) != val.Val.(Integer) {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	case NUMBER:
 		boolval := Integer(1)
@@ -566,35 +588,29 @@ func Test(i *Instr, c *Closure, v *VM) {
 			boolval = 0
 		}
 		if Integer(i.C) != boolval {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	default:
 		if i.C != 0 {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	}
 }
 
-func TestSet(i *Instr, c *Closure, v *VM) {
-	val := c.Stack.Regs[i.B]
+func Op_TestSet(i *Instr, s *Stackframe, v *VM) {
+	val := s.Regs[i.B]
 	switch val.Type {
 	case NIL:
 		if i.C != 0 {
-			c.Stack.Regs[i.A] = &Value{
-				Type: val.Type,
-				Val:  val.Val,
-			}
+			s.Regs[i.A] = val.Copy()
 		} else {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	case BOOLEAN:
 		if Integer(i.C) == val.Val.(Integer) {
-			c.Stack.Regs[i.A] = &Value{
-				Type: val.Type,
-				Val:  val.Val,
-			}
+			s.Regs[i.A] = val.Copy()
 		} else {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	case NUMBER:
 		boolval := Integer(1)
@@ -602,80 +618,72 @@ func TestSet(i *Instr, c *Closure, v *VM) {
 			boolval = 0
 		}
 		if Integer(i.C) == boolval {
-			c.Stack.Regs[i.A] = &Value{
-				Type: val.Type,
-				Val:  val.Val,
-			}
+			s.Regs[i.A] = val.Copy()
 		} else {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	default:
 		if i.C == 0 {
-			c.Stack.Regs[i.A] = &Value{
-				Type: val.Type,
-				Val:  val.Val,
-			}
+			s.Regs[i.A] = val.Copy()
 		} else {
-			c.PC = c.PC + 1
+			s.PC = s.PC + 1
 		}
 	}
 }
 
-func ForPrep(i *Instr, c *Closure, v *VM) {
-	c.Stack.Regs[i.A].Val = c.Stack.Regs[i.A].Val.(Number) - c.Stack.Regs[i.A+2].Val.(Number)
-	c.PC += int64(i.B)
+func Op_ForPrep(i *Instr, s *Stackframe, v *VM) {
+	s.Regs[i.A].Val = s.Regs[i.A].Val.(Number) - s.Regs[i.A+2].Val.(Number)
+	s.PC += int64(i.B)
 }
 
-func ForLoop(i *Instr, c *Closure, v *VM) {
+func Op_ForLoop(i *Instr, s *Stackframe, v *VM) {
 
-	c.Stack.Regs[i.A].Val = c.Stack.Regs[i.A].Val.(Number) + c.Stack.Regs[i.A+2].Val.(Number)
+	s.Regs[i.A].Val = s.Regs[i.A].Val.(Number) + s.Regs[i.A+2].Val.(Number)
 
 	dirp := true
-	if c.Stack.Regs[i.A+2].Val.(Number) < 0 {
+	if s.Regs[i.A+2].Val.(Number) < 0 {
 		dirp = false
 	}
 
 	passed := false
 	if dirp {
-		if c.Stack.Regs[i.A].Val.(Number) > c.Stack.Regs[i.A+1].Val.(Number) {
+		if s.Regs[i.A].Val.(Number) > s.Regs[i.A+1].Val.(Number) {
 			passed = true
 		}
 	} else {
-		if c.Stack.Regs[i.A].Val.(Number) < c.Stack.Regs[i.A+1].Val.(Number) {
+		if s.Regs[i.A].Val.(Number) < s.Regs[i.A+1].Val.(Number) {
 			passed = true
 		}
 	}
 	if !passed {
-		c.Stack.Regs[i.A+3] = &Value{
-			Type: c.Stack.Regs[i.A].Type,
-			Val:  c.Stack.Regs[i.A].Val,
-		}
-		c.PC += int64(i.B)
+		s.Regs[i.A+3] = s.Regs[i.A].Copy()
+		s.PC += int64(i.B)
 	}
 }
 
-func TForLoop(i *Instr, c *Closure, v *VM) {
-	function := c.Stack.Regs[i.A]
+func Op_TForLoop(i *Instr, s *Stackframe, v *VM) {
+	function := s.Regs[i.A]
 	if function.Type == CLOSURE {
-		v.ClosureStack = append(v.ClosureStack, v.C)
-		v.C = function.Val.(*Closure)
-		v.C.ReturnCount = uint64(i.C) + 1
-		v.C.ReturnPos = uint64(i.A) + 3
-		v.C.ReturnFunc = func(c *Closure, v *VM) {
-			if c.Stack.Regs[i.A+3].Type != NIL {
-				c.Stack.Regs[i.A+2] = &Value{
-					Type: c.Stack.Regs[i.A+3].Type,
-					Val:  c.Stack.Regs[i.A+3].Val,
-				}
+		v.FrameStack = append(v.FrameStack, v.S)
+		v.S = &Stackframe{
+			Closure: function.Val.(*Closure),
+			PC:      0,
+		}
+		v.S.ReturnCount = uint64(i.C)
+		v.S.ReturnPos = uint64(i.A)
+		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
+
+		v.S.ReturnFunc = func(s *Stackframe, v *VM) {
+			if s.Regs[i.A+3].Type != NIL {
+				s.Regs[i.A+2] = s.Regs[i.A+3].Copy()
 			}
 		}
-		v.C.Stack.Regs = make([]*Value, v.C.Function.MaxStackSize)
 
 		for l1 := int32(0); l1 < 2; l1++ {
-			if l1 >= int32(v.C.Function.MaxStackSize) {
+			if l1 >= int32(v.S.Closure.Function.MaxStackSize) {
 				break
 			}
-			v.C.Stack.Regs[l1] = c.Stack.Regs[l1+int32(i.A)+1]
+			v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
 		}
 		return
 	}
@@ -684,36 +692,85 @@ func TForLoop(i *Instr, c *Closure, v *VM) {
 	}*/
 }
 
-func NewTable(i *Instr, c *Closure, v *VM) {
+func Op_NewTable(i *Instr, s *Stackframe, v *VM) {
 	t := &Table{}
 	x := i.B & 7
 	e := i.B >> 3
-	arraySize := x
+	arraySize := uint64(x)
 	if e != 0 {
-		arraySize = int(math.Pow(float64((x+8)*2), float64(e-1)))
+		arraySize = uint64(math.Pow(float64((x+8)*2), float64(e-1)))
 	}
 	t.ArraySize = arraySize
 	t.Array = make([]*Value, arraySize)
 	t.Hash = make(map[Value]*Value)
-	c.Stack.Regs[i.A] = &Value{
+	s.Regs[i.A] = &Value{
 		Type: TABLE,
 		Val:  t,
 	}
 }
 
-func SetList(i *Instr, c *Closure, v *VM) {
-	t := &Table{}
-	x := i.B & 7
-	e := i.B >> 3
-	arraySize := x
-	if e != 0 {
-		arraySize = int(math.Pow(float64((x+8)*2), float64(e-1)))
+func Op_SetList(i *Instr, s *Stackframe, v *VM) {
+	t := s.Regs[i.A].Val.(*Table)
+	top := int(i.B)
+	block := Integer(i.C)
+	if top == 0 {
+		top = len(s.Regs) - int(i.A+1)
 	}
-	t.ArraySize = arraySize
-	t.Array = make([]*Value, arraySize)
-	t.Hash = make(map[Value]*Value)
-	c.Stack.Regs[i.A] = &Value{
-		Type: TABLE,
-		Val:  t,
+	if block == 0 {
+		block = Integer(s.Closure.Function.Instructions[s.PC].Raw)
+		s.PC++
+	}
+	for l1 := Integer(1); l1 <= Integer(top); l1++ {
+		t.Set(
+			Value{Type: NUMBER, Val: l1 + ((block - 1) * 50)},
+			s.Regs[i.A+uint8(l1)].Copy())
+	}
+}
+
+func Op_Closure(i *Instr, s *Stackframe, v *VM) {
+	closure := &Closure{
+		Function: s.Closure.Function.Functions[i.B],
+	}
+	destReg := i.A
+	closure.Upvalues = make([]*Value, closure.Function.Upvalues)
+	for l1 := uint8(0); l1 < closure.Function.Upvalues; l1++ {
+		subi := s.Closure.Function.Instructions[s.PC]
+		if subi.Opcode == OP_GETUPVAL {
+			closure.Upvalues[l1] = s.Closure.Upvalues[subi.B]
+		} else if subi.Opcode == OP_MOVE {
+			closure.Upvalues[l1] = s.Regs[subi.B]
+		} else {
+			panic("Invalid upval reg code")
+		}
+		s.PC++
+	}
+	s.Regs[destReg] = &Value{Type: CLOSURE, Val: closure}
+}
+
+func Op_Vararg(i *Instr, s *Stackframe, v *VM) {
+	if i.B == 0 {
+		for l1 := int32(0); l1 < int32(len(s.Params)); l1++ {
+			if l1+int32(i.A) >= int32(len(v.S.Regs)) {
+				v.S.Regs = append(v.S.Regs, s.Params[l1])
+			} else {
+				v.S.Regs[l1+int32(i.A)] = s.Params[l1]
+			}
+		}
+	} else {
+		for l1 := int32(0); l1 < i.B-1; l1++ {
+			if l1+int32(i.A) >= int32(len(v.S.Regs)) {
+				v.S.Regs = append(v.S.Regs, s.Params[l1])
+			} else {
+				v.S.Regs[l1+int32(i.A)] = s.Params[l1]
+			}
+		}
+	}
+
+}
+
+func (v *Value) Copy() *Value {
+	return &Value{
+		Type: v.Type,
+		Val:  v.Val,
 	}
 }
