@@ -38,10 +38,12 @@ func (t *Table) Get(key Value) *Value {
 
 func (t *Table) CalcMaxN() {
 	for k, v := range t.Array {
-		if v.Type == NIL {
+		if v == nil || v.Type == NIL {
 			t.MaxN = uint64(k - 1)
+			return
 		}
 	}
+	t.MaxN = uint64(len(t.Array))
 }
 
 func (t *Table) Len() *Value {

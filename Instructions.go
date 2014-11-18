@@ -79,7 +79,7 @@ func Op_LoadK(i *Instr, s *Stackframe, v *VM) {
 func Op_LoadBool(i *Instr, s *Stackframe, v *VM) {
 	s.Regs[i.A] = &Value{
 		Type: BOOLEAN,
-		Val:  i.B,
+		Val:  Integer(i.B),
 	}
 	if i.C != 0 {
 		s.PC++
@@ -288,7 +288,7 @@ func Op_Not(i *Instr, s *Stackframe, v *VM) {
 	if bval.Type == NIL {
 		s.Regs[i.A] = &Value{
 			Type: BOOLEAN,
-			Val:  1,
+			Val:  Integer(1),
 		}
 	}
 	if bval.Type == BOOLEAN {
@@ -298,7 +298,7 @@ func Op_Not(i *Instr, s *Stackframe, v *VM) {
 		}
 		s.Regs[i.A] = &Value{
 			Type: BOOLEAN,
-			Val:  val,
+			Val:  Integer(val),
 		}
 	}
 
@@ -590,7 +590,7 @@ func Op_Test(i *Instr, s *Stackframe, v *VM) {
 	val := s.Regs[i.A]
 	switch val.Type {
 	case NIL:
-		if i.C == 0 {
+		if i.C != 0 {
 			s.PC = s.PC + 1
 		}
 	case BOOLEAN:
@@ -685,12 +685,14 @@ func Op_TForLoop(i *Instr, s *Stackframe, v *VM) {
 			PC:      0,
 		}
 		v.S.ReturnCount = uint64(i.C)
-		v.S.ReturnPos = uint64(i.A)
+		v.S.ReturnPos = uint64(i.A + 3)
 		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
 
 		v.S.ReturnFunc = func(s *Stackframe, v *VM) {
 			if s.Regs[i.A+3].Type != NIL {
 				s.Regs[i.A+2] = s.Regs[i.A+3].Copy()
+			} else {
+				s.PC++
 			}
 		}
 
