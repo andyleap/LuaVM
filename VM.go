@@ -22,10 +22,6 @@ func (v *VM) RunClosure(c *Closure) {
 	v.DispatchLoop()
 }
 
-func (v *VM) RegisterFunc(name string, function GOFUNC) {
-	v.G.Set(Value{Type: STRING, Val: name}, &Value{Type: GOFUNCTION, Val: function})
-}
-
 func (v *VM) DispatchLoop() {
 	for {
 		i := &v.S.Closure.Function.Instructions[v.S.PC]

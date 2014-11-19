@@ -373,8 +373,17 @@ func Op_Call(i *Instr, s *Stackframe, v *VM) {
 		} else {
 			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 		}
-		function.Val.(GOFUNC)(params, v)
-
+		ret := function.Val.(GOFUNC)(params, v)
+		for l1 := int32(0); l1 < int32(len(ret)); l1++ {
+			if i.C > 0 && l1 >= int32(i.C) {
+				break
+			}
+			if len(s.Regs) <= int(l1+int32(i.A)) {
+				s.Regs = append(s.Regs, ret[l1])
+			} else {
+				s.Regs[l1+int32(i.A)] = ret[l1]
+			}
+		}
 	}
 }
 
@@ -452,7 +461,17 @@ func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 		} else {
 			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 		}
-		function.Val.(GOFUNC)(params, v)
+		ret := function.Val.(GOFUNC)(params, v)
+		for l1 := int32(0); l1 < int32(len(ret)); l1++ {
+			if i.C > 0 && l1 >= int32(i.C) {
+				break
+			}
+			if len(s.Regs) <= int(l1+int32(i.A)) {
+				s.Regs = append(s.Regs, ret[l1])
+			} else {
+				s.Regs[l1+int32(i.A)] = ret[l1]
+			}
+		}
 	}
 }
 

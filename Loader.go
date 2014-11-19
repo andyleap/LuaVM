@@ -7,22 +7,6 @@ import (
 	"io"
 )
 
-type ValueType uint8
-
-const (
-	NIL ValueType = iota
-	BOOLEAN
-	_
-	NUMBER
-	STRING
-	TABLE
-	FUNCTION
-	CLOSURE
-	GOFUNCTION
-)
-
-type GOFUNC func(params []*Value, v *VM) []*Value
-
 var (
 	BADSIGNATURE error = errors.New("Bad signature")
 	BADVERSION   error = errors.New("Bad version")
@@ -32,12 +16,6 @@ var (
 type Size_T uint64
 type Integer uint32
 type Instruction uint32
-type Number float64
-
-type Value struct {
-	Type ValueType
-	Val  interface{}
-}
 
 type Instr struct {
 	Raw    Instruction

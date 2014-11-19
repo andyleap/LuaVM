@@ -19,7 +19,7 @@ func TestReadLuaC(t *testing.T) {
 		return
 	}
 	vm := NewVM()
-	vm.RegisterFunc("print", lua_print)
+	vm.G.SetFunc("print", lua_print)
 	vm.RunClosure(c)
 }
 
