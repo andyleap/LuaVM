@@ -8,9 +8,11 @@ type VM struct {
 
 func NewVM() *VM {
 	vm := &VM{
-		G: &Table{},
+		G: NewTable(),
 	}
-	vm.G.Hash = make(map[Value]*Value)
+	vm.G.SetFunc("getmetatable", getmetatable)
+	vm.G.SetFunc("setmetatable", setmetatable)
+
 	return vm
 }
 
@@ -20,6 +22,20 @@ func (v *VM) RunClosure(c *Closure) {
 		Regs:    make([]*Value, c.Function.MaxStackSize),
 	}
 	v.DispatchLoop()
+}
+
+func (v *VM) runClosure(c *Closure, params []*Value, returnfunc func(*Stackframe, *VM, []*Value)) *Stackframe {
+	s := &Stackframe{
+		Closure:    c,
+		Regs:       make([]*Value, c.Function.MaxStackSize),
+		Params:     make([]*Value, len(params)),
+		ReturnFunc: returnfunc,
+	}
+	for k, val := range params {
+		s.Regs[k] = val.Copy()
+		s.Params[k] = val.Copy()
+	}
+	return s
 }
 
 func (v *VM) DispatchLoop() {

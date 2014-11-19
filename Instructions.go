@@ -46,13 +46,11 @@ const (
 )
 
 type Stackframe struct {
-	Regs        []*Value
-	Params      []*Value
-	Closure     *Closure
-	PC          int64
-	ReturnCount uint64
-	ReturnPos   uint64
-	ReturnFunc  func(*Stackframe, *VM)
+	Regs       []*Value
+	Params     []*Value
+	Closure    *Closure
+	PC         int64
+	ReturnFunc func(*Stackframe, *VM, []*Value)
 }
 
 type Closure struct {
@@ -336,34 +334,28 @@ func Op_Jmp(i *Instr, s *Stackframe, v *VM) {
 
 func Op_Call(i *Instr, s *Stackframe, v *VM) {
 	function := s.Regs[i.A]
+	var params []*Value
+	if i.B == 0 {
+		params = s.Regs[i.A+1:]
+	} else {
+		params = s.Regs[i.A+1 : i.A+uint8(i.B)]
+	}
+
 	if function.Type == CLOSURE {
 		v.FrameStack = append(v.FrameStack, v.S)
-		v.S = &Stackframe{
-			Closure: function.Val.(*Closure),
-			PC:      0,
-		}
-		v.S.ReturnCount = uint64(i.C)
-		v.S.ReturnPos = uint64(i.A)
-		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
-		if i.B == 0 {
-			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(s.Regs)); l1++ {
-				if l1 >= int32(len(v.S.Regs)) {
-					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
+		v.S = v.runClosure(function.Val.(*Closure), params, func(rs *Stackframe, rv *VM, rparams []*Value) {
+			for k, val := range rparams {
+				if i.C != 0 && k >= int(i.C-1) {
+					break
+				}
+				if len(s.Regs) <= k+int(i.A) {
+					s.Regs = append(s.Regs, val.Copy())
 				} else {
-					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
+					s.Regs[k+int(i.A)] = val.Copy()
 				}
 			}
-			v.S.Params = s.Regs[i.A+1:]
-		} else if i.B > 1 {
-			for l1 := int32(0); l1 < i.B-1; l1++ {
-				if l1 >= int32(len(v.S.Regs)) {
-					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
-				} else {
-					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
-				}
-			}
-			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)]
-		}
+
+		})
 		return
 	}
 	if function.Type == GOFUNCTION {
@@ -374,14 +366,14 @@ func Op_Call(i *Instr, s *Stackframe, v *VM) {
 			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 		}
 		ret := function.Val.(GOFUNC)(params, v)
-		for l1 := int32(0); l1 < int32(len(ret)); l1++ {
-			if i.C > 0 && l1 >= int32(i.C) {
+		for k, val := range ret {
+			if i.C != 0 && k >= int(i.C-1) {
 				break
 			}
-			if len(s.Regs) <= int(l1+int32(i.A)) {
-				s.Regs = append(s.Regs, ret[l1])
+			if len(s.Regs) <= k+int(i.A) {
+				s.Regs = append(s.Regs, val.Copy())
 			} else {
-				s.Regs[l1+int32(i.A)] = ret[l1]
+				s.Regs[k+int(i.A)] = val.Copy()
 			}
 		}
 	}
@@ -394,64 +386,28 @@ func Op_Return(i *Instr, s *Stackframe, v *VM) {
 	}
 	v.S = v.FrameStack[len(v.FrameStack)-1]
 	v.FrameStack = v.FrameStack[:len(v.FrameStack)-1]
-
+	var params []*Value
 	if i.B == 0 {
-		for l1 := int32(0); l1+int32(i.A) < int32(len(s.Regs)); l1++ {
-			if s.ReturnCount > 0 && l1 >= int32(s.ReturnCount) {
-				break
-			}
-			if len(v.S.Regs) <= int(l1+int32(s.ReturnPos)) {
-				v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)])
-			} else {
-				v.S.Regs[l1+int32(s.ReturnPos)] = s.Regs[l1+int32(i.A)]
-			}
-		}
-	} else if i.B > 1 {
-		for l1 := int32(0); l1 < i.B-1; l1++ {
-			if s.ReturnCount > 0 && l1 >= int32(s.ReturnCount) {
-				break
-			}
-			if len(v.S.Regs) <= int(l1+int32(s.ReturnPos)) {
-				v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)])
-			} else {
-				v.S.Regs[l1+int32(s.ReturnPos)] = s.Regs[l1+int32(i.A)]
-			}
-		}
+		params = s.Regs[i.A:]
+	} else {
+		params = s.Regs[i.A : i.A+uint8(i.B)-1]
 	}
 	if s.ReturnFunc != nil {
-		s.ReturnFunc(v.S, v)
+		s.ReturnFunc(v.S, v, params)
 	}
 }
 
 func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 	function := s.Regs[i.A]
+	var params []*Value
+	if i.B == 0 {
+		params = s.Regs[i.A+1:]
+	} else {
+		params = s.Regs[i.A+1 : i.A+uint8(i.B)]
+	}
+
 	if function.Type == CLOSURE {
-		v.S = &Stackframe{
-			Closure: function.Val.(*Closure),
-			PC:      0,
-		}
-		v.S.ReturnCount = uint64(i.C)
-		v.S.ReturnPos = uint64(i.A)
-		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
-		if i.B == 0 {
-			for l1 := int32(0); l1+int32(i.A)+1 < int32(len(s.Regs)); l1++ {
-				if l1 >= int32(len(v.S.Regs)) {
-					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
-				} else {
-					v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
-				}
-			}
-			v.S.Params = s.Regs[i.A+1:]
-		} else if i.B > 1 {
-			for l1 := int32(0); l1 < i.B-1; l1++ {
-				if l1 >= int32(len(v.S.Regs)) {
-					v.S.Regs = append(v.S.Regs, s.Regs[l1+int32(i.A)+1])
-				} else {
-					v.S.Regs[l1] = s.Regs[l1+int32(i.A)]
-				}
-			}
-			v.S.Params = s.Regs[i.A+1 : i.A+uint8(i.B)+1]
-		}
+		v.S = v.runClosure(function.Val.(*Closure), params, s.ReturnFunc)
 		return
 	}
 	if function.Type == GOFUNCTION {
@@ -462,14 +418,14 @@ func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 		}
 		ret := function.Val.(GOFUNC)(params, v)
-		for l1 := int32(0); l1 < int32(len(ret)); l1++ {
-			if i.C > 0 && l1 >= int32(i.C) {
+		for k, val := range ret {
+			if i.C != 0 && k >= int(i.C-1) {
 				break
 			}
-			if len(s.Regs) <= int(l1+int32(i.A)) {
-				s.Regs = append(s.Regs, ret[l1])
+			if len(s.Regs) <= k+int(i.A) {
+				s.Regs = append(s.Regs, val.Copy())
 			} else {
-				s.Regs[l1+int32(i.A)] = ret[l1]
+				s.Regs[k+int(i.A)] = val.Copy()
 			}
 		}
 	}
@@ -697,30 +653,28 @@ func Op_ForLoop(i *Instr, s *Stackframe, v *VM) {
 
 func Op_TForLoop(i *Instr, s *Stackframe, v *VM) {
 	function := s.Regs[i.A]
+	var params []*Value
+	params = s.Regs[i.A+1 : i.A+3]
+
 	if function.Type == CLOSURE {
 		v.FrameStack = append(v.FrameStack, v.S)
-		v.S = &Stackframe{
-			Closure: function.Val.(*Closure),
-			PC:      0,
-		}
-		v.S.ReturnCount = uint64(i.C)
-		v.S.ReturnPos = uint64(i.A + 3)
-		v.S.Regs = make([]*Value, v.S.Closure.Function.MaxStackSize)
-
-		v.S.ReturnFunc = func(s *Stackframe, v *VM) {
+		v.S = v.runClosure(function.Val.(*Closure), params, func(rs *Stackframe, rv *VM, rparams []*Value) {
+			for k, val := range rparams {
+				if i.C != 0 && k >= int(i.C-1) {
+					break
+				}
+				if len(s.Regs) <= k+int(i.A+3) {
+					s.Regs = append(s.Regs, val.Copy())
+				} else {
+					s.Regs[k+int(i.A+3)] = val.Copy()
+				}
+			}
 			if s.Regs[i.A+3].Type != NIL {
 				s.Regs[i.A+2] = s.Regs[i.A+3].Copy()
 			} else {
 				s.PC++
 			}
-		}
-
-		for l1 := int32(0); l1 < 2; l1++ {
-			if l1 >= int32(v.S.Closure.Function.MaxStackSize) {
-				break
-			}
-			v.S.Regs[l1] = s.Regs[l1+int32(i.A)+1]
-		}
+		})
 		return
 	}
 	/*if function.Type == GOFUNCTION {

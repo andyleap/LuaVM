@@ -7,6 +7,7 @@ type Table struct {
 	Hash      map[Value]*Value
 	ArraySize uint64
 	MaxN      uint64
+	Metatable *Table
 }
 
 //TODO: add metamethod support
@@ -51,6 +52,20 @@ func (t *Table) CalcMaxN() {
 		}
 	}
 	t.MaxN = uint64(len(t.Array))
+}
+
+func getmetatable(params []*Value, v *VM) []*Value {
+	t := params[0].Val.(*Table)
+	if t.Metatable == nil {
+		return []*Value{{Type: NIL}}
+	}
+	return []*Value{{Type: TABLE, Val: t}}
+}
+
+func setmetatable(params []*Value, v *VM) []*Value {
+	t := params[0].Val.(*Table)
+	t.Metatable = params[1].Val.(*Table)
+	return nil
 }
 
 func (t *Table) Len() *Value {
