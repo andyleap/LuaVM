@@ -340,6 +340,9 @@ func Op_Call(i *Instr, s *Stackframe, v *VM) {
 	} else {
 		params = s.Regs[i.A+1 : i.A+uint8(i.B)]
 	}
+	if i.C == 0 {
+		s.Regs = s.Regs[0:i.A]
+	}
 
 	if function.Type == CLOSURE {
 		v.FrameStack = append(v.FrameStack, v.S)
@@ -354,19 +357,12 @@ func Op_Call(i *Instr, s *Stackframe, v *VM) {
 					s.Regs[k+int(i.A)] = val.Copy()
 				}
 			}
-
 		})
 		return
 	}
 	if function.Type == GOFUNCTION {
-		var params []*Value
-		if i.B == 0 {
-			params = s.Regs[i.A+1:]
-		} else {
-			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
-		}
-		ret := function.Val.(GOFUNC)(params, v)
-		for k, val := range ret {
+		rparams := function.Val.(GOFUNC)(params, v)
+		for k, val := range rparams {
 			if i.C != 0 && k >= int(i.C-1) {
 				break
 			}
@@ -402,8 +398,12 @@ func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 	var params []*Value
 	if i.B == 0 {
 		params = s.Regs[i.A+1:]
+		s.Regs = s.Regs[0:i.A]
 	} else {
 		params = s.Regs[i.A+1 : i.A+uint8(i.B)]
+	}
+	if i.C == 0 {
+		s.Regs = s.Regs[0:i.A]
 	}
 
 	if function.Type == CLOSURE {
@@ -411,14 +411,8 @@ func Op_TailCall(i *Instr, s *Stackframe, v *VM) {
 		return
 	}
 	if function.Type == GOFUNCTION {
-		var params []*Value
-		if i.B == 0 {
-			params = s.Regs[i.A+1:]
-		} else {
-			params = s.Regs[i.A+1 : i.A+uint8(i.B)]
-		}
-		ret := function.Val.(GOFUNC)(params, v)
-		for k, val := range ret {
+		rparams := function.Val.(GOFUNC)(params, v)
+		for k, val := range rparams {
 			if i.C != 0 && k >= int(i.C-1) {
 				break
 			}
